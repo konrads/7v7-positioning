@@ -172,6 +172,13 @@
   var fieldW = fieldRight - fieldLeft;
   var fieldH = fieldBottom - fieldTop;
 
+  // Goal geometry — shared by drawField() (drawing) and attachDrag() (letting the ball
+  // travel into the goal frame), so there's one source of truth for these numbers.
+  var GOAL_W = 103, GOAL_D = 16, GOAL_SHIFT = 3;
+  var GOAL_X1 = (W - GOAL_W) / 2, GOAL_X2 = GOAL_X1 + GOAL_W;
+  var GOAL_TOP_BACK_Y = margin - GOAL_D - GOAL_SHIFT;
+  var GOAL_BOTTOM_BACK_Y = H - margin + GOAL_SHIFT + GOAL_D;
+
   function el(tag, attrs) {
     var e = document.createElementNS(NS, tag);
     for (var k in attrs) e.setAttribute(k, attrs[k]);
@@ -200,12 +207,11 @@
       var spotY = dir === 'top' ? margin + 55 : H - margin - 55;
       svg.appendChild(el('circle', {cx: W / 2, cy: spotY, r: 2, fill: lineColor}));
 
-      var goalW = 103, goalD = 16, goalShift = 3;
-      var goalY = dir === 'top' ? margin - goalD - goalShift : H - margin + goalShift;
-      var gx1 = (W - goalW) / 2, gx2 = gx1 + goalW;
+      var goalY = dir === 'top' ? GOAL_TOP_BACK_Y : GOAL_BOTTOM_BACK_Y - GOAL_D;
+      var gx1 = GOAL_X1, gx2 = GOAL_X2;
       var goalPath = dir === 'top'
-        ? 'M ' + gx1 + ' ' + (goalY + goalD) + ' L ' + gx1 + ' ' + goalY + ' L ' + gx2 + ' ' + goalY + ' L ' + gx2 + ' ' + (goalY + goalD)
-        : 'M ' + gx1 + ' ' + goalY + ' L ' + gx1 + ' ' + (goalY + goalD) + ' L ' + gx2 + ' ' + (goalY + goalD) + ' L ' + gx2 + ' ' + goalY;
+        ? 'M ' + gx1 + ' ' + (goalY + GOAL_D) + ' L ' + gx1 + ' ' + goalY + ' L ' + gx2 + ' ' + goalY + ' L ' + gx2 + ' ' + (goalY + GOAL_D)
+        : 'M ' + gx1 + ' ' + goalY + ' L ' + gx1 + ' ' + (goalY + GOAL_D) + ' L ' + gx2 + ' ' + (goalY + GOAL_D) + ' L ' + gx2 + ' ' + goalY;
       svg.appendChild(el('path', {d: goalPath, fill: 'none', stroke: '#ffffff', 'stroke-width': 4, 'stroke-linecap': 'square'}));
     }
     endMarkings('top');
@@ -540,8 +546,19 @@
     function onMove(evt) {
       if (!dragging) return;
       var pt = svgPoint(evt);
-      p.x = clamp(pt.x - offset.x, fieldLeft + marginX, fieldRight - marginX);
-      p.y = clamp(pt.y - offset.y, fieldTop + marginY, fieldBottom - marginY);
+      var newX = clamp(pt.x - offset.x, fieldLeft + marginX, fieldRight - marginX);
+      var minY = fieldTop + marginY, maxY = fieldBottom - marginY;
+      if (isBall) {
+        // Let the ball travel into either goal frame, but only while it's lined up
+        // within the goal's width — otherwise it stays clamped at the touchline as usual.
+        var inGoalX = newX >= (GOAL_X1 + BALL_R) && newX <= (GOAL_X2 - BALL_R);
+        if (inGoalX) {
+          minY = GOAL_TOP_BACK_Y + BALL_R;
+          maxY = GOAL_BOTTOM_BACK_Y - BALL_R;
+        }
+      }
+      p.x = newX;
+      p.y = clamp(pt.y - offset.y, minY, maxY);
       g.setAttribute('transform', 'translate(' + p.x + ',' + p.y + ')');
     }
 
