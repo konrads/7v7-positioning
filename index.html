@@ -314,7 +314,13 @@
   }
 
   // ---------- Mode (Formations vs Manual) + Reset baseline tracking ----------
+  // These four are the only pieces of "derived UI" state. Every event handler's job is
+  // simply: mutate mode / savedPositionId / baselineState / players / ball / arrows,
+  // then call render() once. render() is the ONLY place that writes to the control
+  // panel's DOM (disabled states, row visibility, dropdown options, radio checks) — no
+  // handler should set any of that directly, to avoid the panel drifting out of sync.
   var mode = 'formations';
+  var savedPositionId = ''; // currently selected saved position id (Manual mode only)
   var baselineState = null; // null = no defined baseline to revert to (e.g. blank Manual slate)
 
   function serializeFieldState() {
@@ -332,21 +338,6 @@
 
   function setBaseline() {
     baselineState = serializeFieldState();
-    updateResetState();
-  }
-
-  function updateResetState() {
-    var unchanged = baselineState !== null && serializeFieldState() === baselineState;
-    document.getElementById('deleteArrowsBtn').disabled = !(baselineState !== null && !unchanged);
-    // The name field itself is disabled only when there's a baseline and nothing has
-    // changed since it — a blank Manual slate (no baseline yet) still allows typing a
-    // name for a brand-new position. Save additionally requires a non-empty name.
-    var nameInput = document.getElementById('saveNameInput');
-    nameInput.disabled = unchanged;
-    var nameEmpty = nameInput.value.trim() === '';
-    document.getElementById('saveBtn').disabled = unchanged || nameEmpty;
-    // Delete (a single saved position) only makes sense once one is actually selected.
-    document.getElementById('deleteBtn').disabled = !document.getElementById('savedSelect').value;
   }
 
   // Reverts the field to the in-memory baseline — used when Reset is pressed in Manual
@@ -368,30 +359,19 @@
       arrowLayer.appendChild(line);
       arrows.push(line);
     });
-    updateResetState(); // baselineState itself is unchanged, so this re-disables Reset/Save
   }
 
   function setMode(newMode) {
     mode = newMode;
-    document.getElementById('formationsRow').style.display = mode === 'formations' ? '' : 'none';
-    document.getElementById('manualRow').style.display = mode === 'manual' ? '' : 'none';
-    document.getElementById('modeFormationsRadio').checked = (mode === 'formations');
-    document.getElementById('modeManualRadio').checked = (mode === 'manual');
-
     if (mode === 'formations') {
       initPlayers(); // reapply the selected formations
     } else {
-      var savedSel = document.getElementById('savedSelect');
-      var id = savedSel.value;
-      if (!id) {
+      if (!savedPositionId) {
         // Nothing chosen yet this session — default to the first saved position, if any exist.
         var list = loadSnapshots();
-        if (list.length > 0) {
-          id = list[0].id;
-          savedSel.value = id;
-        }
+        if (list.length > 0) savedPositionId = list[0].id;
       }
-      var snap = id ? loadSnapshots().filter(function (s) { return s.id === id; })[0] : null;
+      var snap = savedPositionId ? loadSnapshots().filter(function (s) { return s.id === savedPositionId; })[0] : null;
       if (snap) {
         applySnapshot(snap);
       } else {
@@ -400,6 +380,47 @@
         setBaseline();
       }
     }
+  }
+
+  // The single source of truth for all control-panel DOM: row visibility, radio state,
+  // the saved-positions dropdown, and every button/input's disabled state. Called after
+  // every state-mutating action; never called mid-mutation.
+  function render() {
+    document.getElementById('formationsRow').style.display = mode === 'formations' ? '' : 'none';
+    document.getElementById('manualRow').style.display = mode === 'manual' ? '' : 'none';
+    document.getElementById('modeFormationsRadio').checked = (mode === 'formations');
+    document.getElementById('modeManualRadio').checked = (mode === 'manual');
+
+    var list = loadSnapshots();
+    var sel = document.getElementById('savedSelect');
+    sel.innerHTML = '';
+    var pickOpt = document.createElement('option');
+    pickOpt.value = '';
+    pickOpt.textContent = 'No saved positions';
+    sel.appendChild(pickOpt);
+    var stillExists = false;
+    list.forEach(function (snap) {
+      var opt = document.createElement('option');
+      opt.value = snap.id;
+      opt.textContent = snap.name;
+      sel.appendChild(opt);
+      if (snap.id === savedPositionId) stillExists = true;
+    });
+    if (!stillExists) savedPositionId = '';
+    sel.value = savedPositionId;
+
+    var unchanged = baselineState !== null && serializeFieldState() === baselineState;
+    document.getElementById('deleteArrowsBtn').disabled = !(baselineState !== null && !unchanged);
+    // The name field itself is disabled only when there's a baseline and nothing has
+    // changed since it — a blank Manual slate (no baseline yet) still allows typing a
+    // name for a brand-new position. Save additionally requires a non-empty name.
+    var nameInput = document.getElementById('saveNameInput');
+    nameInput.disabled = unchanged;
+    var nameEmpty = nameInput.value.trim() === '';
+    document.getElementById('saveBtn').disabled = unchanged || nameEmpty;
+    // Delete (a single saved position) only makes sense once one is actually selected.
+    document.getElementById('deleteBtn').disabled = !savedPositionId;
+    document.getElementById('clearPositionsBtn').disabled = (list.length === 0);
   }
 
   var roleImageNames = {GK: 'goalie', DF: 'defender', MF: 'midfielder', FW: 'striker'};
@@ -493,7 +514,7 @@
       g.classList.remove('dragging');
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      updateResetState();
+      render();
     }
 
     g.addEventListener('pointerdown', onDown);
@@ -526,25 +547,6 @@
 
   function persistSnapshots(list) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch (e) {}
-  }
-
-  function refreshSavedSelect(selectId) {
-    var list = loadSnapshots();
-    var sel = document.getElementById('savedSelect');
-    sel.innerHTML = '';
-    var pickOpt = document.createElement('option');
-    pickOpt.value = '';
-    pickOpt.textContent = 'No saved positions';
-    sel.appendChild(pickOpt);
-    list.forEach(function (snap) {
-      var opt = document.createElement('option');
-      opt.value = snap.id;
-      opt.textContent = snap.name;
-      sel.appendChild(opt);
-    });
-    sel.value = selectId || '';
-    var clearAllBtn = document.getElementById('clearPositionsBtn');
-    if (clearAllBtn) clearAllBtn.disabled = (list.length === 0);
   }
 
   function captureSnapshot(name) {
@@ -584,9 +586,9 @@
       arrowLayer.appendChild(line);
       arrows.push(line);
     });
+    savedPositionId = snap.id;
     // Prefill the name field with this position's name, so Save overwrites it by default.
-    var nameInput = document.getElementById('saveNameInput');
-    if (nameInput) nameInput.value = snap.name;
+    document.getElementById('saveNameInput').value = snap.name;
     setBaseline();
   }
 
@@ -594,10 +596,11 @@
   drawField();
   svg.appendChild(arrowLayer);
   populateSelects();
-  refreshSavedSelect();
   setMode('formations');
+  render();
 
   // ---------- Event listeners ----------
+  // Every handler below follows the same shape: mutate state, then call render() once.
 
   // Arrow drawing: drag on empty pitch space; double-click clears all arrows
   svg.addEventListener('pointerdown', function (evt) {
@@ -631,7 +634,7 @@
       draftArrow.remove(); // treat as an accidental tap, not a real arrow
     } else {
       arrows.push(draftArrow);
-      updateResetState();
+      render();
     }
     draftArrow = null;
   });
@@ -640,21 +643,20 @@
     var onPlayer = evt.target.closest ? evt.target.closest('.player-group') : null;
     if (onPlayer) return; // double-clicking a player is not a clear-arrows gesture
     clearArrows();
-    updateResetState();
+    render();
   });
 
   // Formation controls
-  document.getElementById('homeFormation').addEventListener('change', initPlayers);
-  document.getElementById('awayFormation').addEventListener('change', initPlayers);
-  document.getElementById('modeFormationsRadio').addEventListener('change', function () { if (this.checked) setMode('formations'); });
-  document.getElementById('modeManualRadio').addEventListener('change', function () { if (this.checked) setMode('manual'); });
+  document.getElementById('homeFormation').addEventListener('change', function () { initPlayers(); render(); });
+  document.getElementById('awayFormation').addEventListener('change', function () { initPlayers(); render(); });
+  document.getElementById('modeFormationsRadio').addEventListener('change', function () { if (this.checked) { setMode('formations'); render(); } });
+  document.getElementById('modeManualRadio').addEventListener('change', function () { if (this.checked) { setMode('manual'); render(); } });
   document.getElementById('deleteArrowsBtn').addEventListener('click', function () {
     // Reset means "back to the current baseline" — the loaded saved position in Manual
     // mode (or its ad-hoc in-memory baseline if nothing's actually saved), or the
     // selected formations in Formations mode.
     if (mode === 'manual') {
-      var id = document.getElementById('savedSelect').value;
-      var snap = id ? loadSnapshots().filter(function (s) { return s.id === id; })[0] : null;
+      var snap = savedPositionId ? loadSnapshots().filter(function (s) { return s.id === savedPositionId; })[0] : null;
       if (snap) {
         applySnapshot(snap);
       } else {
@@ -663,6 +665,7 @@
     } else {
       initPlayers();
     }
+    render();
   });
 
   // Saved positions
@@ -683,44 +686,46 @@
       list.push(snap);
     }
     persistSnapshots(list);
-    input.value = '';
-    refreshSavedSelect(snap.id);
+    savedPositionId = snap.id;
     setBaseline(); // this save is now the baseline Reset will revert to
+    render();
   });
 
   document.getElementById('saveNameInput').addEventListener('keydown', function (evt) {
     if (evt.key === 'Enter') document.getElementById('saveBtn').click();
   });
 
-  document.getElementById('saveNameInput').addEventListener('input', updateResetState);
+  document.getElementById('saveNameInput').addEventListener('input', render);
 
   document.getElementById('savedSelect').addEventListener('change', function () {
-    var id = this.value;
-    if (!id) {
+    savedPositionId = this.value;
+    if (!savedPositionId) {
       // back to a blank Manual slate — the field stays as-is, and that becomes the new baseline
       setBaseline();
-      return;
+    } else {
+      var snap = loadSnapshots().filter(function (s) { return s.id === savedPositionId; })[0];
+      if (snap) applySnapshot(snap);
     }
-    var snap = loadSnapshots().filter(function (s) { return s.id === id; })[0];
-    if (snap) applySnapshot(snap);
+    render();
   });
 
   document.getElementById('deleteBtn').addEventListener('click', function () {
-    var id = document.getElementById('savedSelect').value;
-    if (!id) return;
-    persistSnapshots(loadSnapshots().filter(function (s) { return s.id !== id; }));
-    refreshSavedSelect();
+    if (!savedPositionId) return;
+    persistSnapshots(loadSnapshots().filter(function (s) { return s.id !== savedPositionId; }));
+    savedPositionId = '';
     // The saved position is gone, but the field still shows it — that becomes the new
     // (unsaved) baseline, so Reset undoes only changes made after the deletion.
     setBaseline();
+    render();
   });
 
   document.getElementById('clearPositionsBtn').addEventListener('click', function () {
     if (loadSnapshots().length === 0) return;
     if (window.confirm('Delete all saved positions? This cannot be undone.')) {
       persistSnapshots([]);
-      refreshSavedSelect();
+      savedPositionId = '';
       setMode('formations'); // nothing left to view in Manual, so switch back with formations loaded
+      render();
     }
   });
 })();
