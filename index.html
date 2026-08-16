@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -28,7 +28,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 8px 8px 6px;
+    padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
     min-height: 100vh;
   }
   h1 { font-size: 21px; font-weight: 600; margin: 0 0 16px; }
@@ -48,11 +48,14 @@
     flex-wrap: wrap;
   }
   .panel-cell.toolbar { gap: 14px; }
+  #formationsRow, #manualRow { flex-wrap: nowrap; min-height: 30px; }
   .team-group { display: flex; align-items: center; gap: 6px; }
   .team-group + .team-group { margin-left: 10px; }
   .mode-group { display: inline-flex; align-items: center; gap: 10px; }
   .radio-label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--panel-text); cursor: pointer; }
   .radio-label input { cursor: pointer; }
+  .size-slider-label { gap: 6px; }
+  #sizeSlider { width: 70px; }
   select, button {
     background: var(--panel-bg);
     color: var(--panel-text);
@@ -75,9 +78,9 @@
   button:hover, select:hover { border-color: #5a6b82; }
   .label { font-size: 15px; color: #9aa5b1; }
   button:disabled, input:disabled { opacity: 0.35; cursor: not-allowed; }
+  button:disabled:hover { border-color: #364152; }
   #clearPositionsBtn { min-width: 150px; white-space: nowrap; }
   #clearPositionsBtn.confirm-armed { background: #7a1420; border-color: #b33; color: #fff; }
-  button:disabled:hover { border-color: #364152; }
   .field-wrap {
     position: relative;
     width: 100%;
@@ -130,6 +133,10 @@
     </span>
     <button id="deleteArrowsBtn">Reset</button>
     <button id="clearPositionsBtn">Delete All Manual</button>
+    <label class="radio-label size-slider-label">
+      Size
+      <input type="range" id="sizeSlider" min="0.7" max="1.3" step="0.01" value="1">
+    </label>
   </div>
 
   <div class="panel-cell" id="formationsRow">
@@ -235,7 +242,15 @@
   var TEAM_FILL = {home: '#e63946', away: '#1d6fd8'};
   var teamOutlineColor = {home: '#7a1420', away: '#0d3f78'};
   var roleLetters = {GK: 'G', DF: 'D', MF: 'M', FW: 'S'};
-  var PLAYER_RX = 15.75, PLAYER_RY = 18; // shared radius for the fallback ellipse, photo, and ring
+  var SIZE_MULTIPLIER = 1; // scales both player and ball sizes uniformly (see #sizeSlider)
+  var PLAYER_RX, PLAYER_RY, BALL_R;
+
+  function recomputeSizes() {
+    PLAYER_RX = 15.75 * SIZE_MULTIPLIER;
+    PLAYER_RY = 18 * SIZE_MULTIPLIER;
+    BALL_R = 12.6 * SIZE_MULTIPLIER;
+  }
+  recomputeSizes(); // establish initial values now; re-rendering happens separately, on demand
   var OUTLINE_WIDTH = 2.5; // team-outline stroke width, shared by the fallback ellipse and the photo ring
 
   function buildTeamPositions(formationKey, isHome) {
@@ -291,7 +306,7 @@
   }
 
   function renderBall() {
-    var BALL_R = 12.6, BALL_PENTAGON_R = 7.65;
+    var BALL_PENTAGON_R = 7.65 * SIZE_MULTIPLIER;
     var old = svg.querySelector('.ball-group');
     if (old) old.remove();
     var g = el('g', {class: 'ball-group player-group', 'data-id': ball.id, transform: 'translate(' + ball.x + ',' + ball.y + ')'});
@@ -331,6 +346,7 @@
 
   function serializeFieldState() {
     return JSON.stringify({
+      sizeMultiplier: SIZE_MULTIPLIER,
       players: players.map(function (p) { return {id: p.id, role: p.role, team: p.team, x: p.x, y: p.y}; }),
       ball: {x: ball.x, y: ball.y},
       arrows: arrows.map(function (a) {
@@ -351,6 +367,9 @@
   function restoreBaseline() {
     if (baselineState === null) return;
     var state = JSON.parse(baselineState);
+    SIZE_MULTIPLIER = (typeof state.sizeMultiplier === 'number') ? state.sizeMultiplier : 1;
+    recomputeSizes();
+    document.getElementById('sizeSlider').value = SIZE_MULTIPLIER;
     players = state.players.map(function (p) { return {id: p.id, role: p.role, team: p.team, x: p.x, y: p.y}; });
     ball.x = state.ball.x;
     ball.y = state.ball.y;
@@ -416,7 +435,7 @@
     sel.value = savedPositionId;
 
     var unchanged = baselineState !== null && serializeFieldState() === baselineState;
-    document.getElementById('deleteArrowsBtn').disabled = !(baselineState !== null && !unchanged);
+    document.getElementById('deleteArrowsBtn').disabled = (baselineState === null) || unchanged;
     // The name field itself is disabled only when there's a baseline and nothing has
     // changed since it — a blank Manual slate (no baseline yet) still allows typing a
     // name for a brand-new position. Save additionally requires a non-empty name.
@@ -480,6 +499,13 @@
     });
   }
 
+  function applySizeMultiplier(value) {
+    SIZE_MULTIPLIER = value;
+    recomputeSizes();
+    renderBall();
+    renderPlayers();
+  }
+
   function svgPoint(evt) {
     var pt = svg.createSVGPoint();
     pt.x = evt.clientX;
@@ -494,6 +520,10 @@
   function attachDrag(g, p) {
     var dragging = false;
     var offset = {x: 0, y: 0};
+    var isBall = (p === ball);
+    // Ball stays fully on the field; players may hang most of their body over the line.
+    var marginX = isBall ? 8 : PLAYER_RX / 6;
+    var marginY = isBall ? 8 : PLAYER_RY / 6;
 
     function onDown(evt) {
       dragging = true;
@@ -510,8 +540,8 @@
     function onMove(evt) {
       if (!dragging) return;
       var pt = svgPoint(evt);
-      p.x = clamp(pt.x - offset.x, fieldLeft + 8, fieldRight - 8);
-      p.y = clamp(pt.y - offset.y, fieldTop + 8, fieldBottom - 8);
+      p.x = clamp(pt.x - offset.x, fieldLeft + marginX, fieldRight - marginX);
+      p.y = clamp(pt.y - offset.y, fieldTop + marginY, fieldBottom - marginY);
       g.setAttribute('transform', 'translate(' + p.x + ',' + p.y + ')');
     }
 
@@ -559,6 +589,7 @@
     return {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       name: name,
+      sizeMultiplier: SIZE_MULTIPLIER,
       players: players.map(function (p) {
         return {id: p.id, role: p.role, team: p.team, x: p.x, y: p.y};
       }),
@@ -573,6 +604,12 @@
   }
 
   function applySnapshot(snap) {
+    // Restore size first, so players/ball/arrows only need to be drawn once, at the
+    // right scale — older snapshots saved before this feature existed default to 1.
+    SIZE_MULTIPLIER = (typeof snap.sizeMultiplier === 'number') ? snap.sizeMultiplier : 1;
+    recomputeSizes();
+    document.getElementById('sizeSlider').value = SIZE_MULTIPLIER;
+
     players = snap.players.map(function (p) { return {id: p.id, role: p.role, team: p.team, x: p.x, y: p.y}; });
     if (snap.ball) {
       ball.x = snap.ball.x;
@@ -657,6 +694,7 @@
   document.getElementById('awayFormation').addEventListener('change', function () { initPlayers(); render(); });
   document.getElementById('modeFormationsRadio').addEventListener('change', function () { if (this.checked) { setMode('formations'); render(); } });
   document.getElementById('modeManualRadio').addEventListener('change', function () { if (this.checked) { setMode('manual'); render(); } });
+  document.getElementById('sizeSlider').addEventListener('input', function () { applySizeMultiplier(parseFloat(this.value)); render(); });
   document.getElementById('deleteArrowsBtn').addEventListener('click', function () {
     // Reset means "back to the current baseline" — the loaded saved position in Manual
     // mode (or its ad-hoc in-memory baseline if nothing's actually saved), or the
