@@ -71,6 +71,8 @@
   button:hover, select:hover { border-color: #5a6b82; }
   .label { font-size: 15px; color: #9aa5b1; }
   button:disabled, input:disabled { opacity: 0.35; cursor: not-allowed; }
+  #clearPositionsBtn { min-width: 150px; white-space: nowrap; }
+  #clearPositionsBtn.confirm-armed { background: #7a1420; border-color: #b33; color: #fff; }
   button:disabled:hover { border-color: #364152; }
   .field-wrap {
     position: relative;
@@ -719,14 +721,39 @@
     render();
   });
 
+  // Delete All Manual uses a two-tap confirm instead of window.confirm() — native dialogs
+  // aren't reliable everywhere this page might run (iOS home-screen/standalone mode,
+  // in-app webviews, sandboxed previews), so the confirmation is built in-page instead.
+  var deleteAllArmed = false;
+  var deleteAllArmTimer = null;
+
+  function disarmDeleteAll() {
+    deleteAllArmed = false;
+    clearTimeout(deleteAllArmTimer);
+    var btn = document.getElementById('clearPositionsBtn');
+    btn.textContent = 'Delete All Manual';
+    btn.classList.remove('confirm-armed');
+  }
+
   document.getElementById('clearPositionsBtn').addEventListener('click', function () {
     if (loadSnapshots().length === 0) return;
-    if (window.confirm('Delete all saved positions? This cannot be undone.')) {
-      persistSnapshots([]);
-      savedPositionId = '';
-      setMode('formations'); // nothing left to view in Manual, so switch back with formations loaded
-      render();
+    if (!deleteAllArmed) {
+      deleteAllArmed = true;
+      this.textContent = 'Tap again to confirm';
+      this.classList.add('confirm-armed');
+      deleteAllArmTimer = setTimeout(disarmDeleteAll, 3500);
+      return;
     }
+    disarmDeleteAll();
+    persistSnapshots([]);
+    savedPositionId = '';
+    setMode('formations'); // nothing left to view in Manual, so switch back with formations loaded
+    render();
+  });
+
+  // Any other interaction cancels a pending confirmation, so it doesn't linger armed.
+  document.addEventListener('pointerdown', function (evt) {
+    if (deleteAllArmed && evt.target.id !== 'clearPositionsBtn') disarmDeleteAll();
   });
 })();
 </script>
