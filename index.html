@@ -29,21 +29,26 @@
   }
   h1 { font-size: 21px; font-weight: 600; margin: 0 0 16px; }
   .panel {
-    display: inline-grid;
-    grid-template-columns: auto auto;
-    gap: 6px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     margin: 0 auto 8px;
     max-width: 100%;
   }
   .panel-cell {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     flex-wrap: wrap;
   }
-  .panel-cell.row1 { justify-content: space-between; }
+  .panel-cell.toolbar { gap: 14px; }
   .team-group { display: flex; align-items: center; gap: 6px; }
   .team-group + .team-group { margin-left: 10px; }
+  .mode-group { display: inline-flex; align-items: center; gap: 10px; }
+  .radio-label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--panel-text); cursor: pointer; }
+  .radio-label input { cursor: pointer; }
   select, button {
     background: var(--panel-bg);
     color: var(--panel-text);
@@ -65,9 +70,8 @@
   select#savedSelect { max-width: 180px; }
   button:hover, select:hover { border-color: #5a6b82; }
   .label { font-size: 15px; color: #9aa5b1; }
-  .label.clickable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
-  .label.clickable:hover { color: var(--panel-text); }
-  .fill-btn { align-self: stretch; white-space: nowrap; }
+  button:disabled, input:disabled { opacity: 0.35; cursor: not-allowed; }
+  button:disabled:hover { border-color: #364152; }
   .field-wrap {
     position: relative;
     width: 100%;
@@ -109,25 +113,35 @@
 <h1>7 v 7 positioning</h1>
 
 <div class="panel">
-  <div class="panel-cell row1">
+  <div class="panel-cell toolbar">
+    <span class="mode-group">
+      <label class="radio-label">
+        <input type="radio" name="modeChoice" id="modeFormationsRadio" checked> Formations
+      </label>
+      <label class="radio-label">
+        <input type="radio" name="modeChoice" id="modeManualRadio"> Manual
+      </label>
+    </span>
+    <button id="deleteArrowsBtn">Reset</button>
+    <button id="clearPositionsBtn">Delete All Manual</button>
+  </div>
+
+  <div class="panel-cell" id="formationsRow">
     <span class="team-group">
-      <span class="label clickable" id="homeLabel" title="Click to reset Home's formation">Home</span>
+      <span class="label" id="homeLabel">Home</span>
       <select id="homeFormation"></select>
     </span>
     <span class="team-group">
-      <span class="label clickable" id="awayLabel" title="Click to reset Away's formation">Away</span>
+      <span class="label" id="awayLabel">Away</span>
       <select id="awayFormation"></select>
     </span>
   </div>
-  <button id="deleteArrowsBtn" class="fill-btn">Delete →</button>
-
-  <div class="panel-cell row2">
-    <select id="savedSelect"><option value="">Pick position</option></select>
+  <div class="panel-cell" id="manualRow" style="display:none">
+    <select id="savedSelect"><option value="">No saved positions</option></select>
     <input type="text" id="saveNameInput" placeholder="Position name">
     <button id="saveBtn">Save</button>
     <button id="deleteBtn">Delete</button>
   </div>
-  <button id="clearPositionsBtn" class="fill-btn">Delete All</button>
 </div>
 
 <div class="field-wrap">
@@ -296,6 +310,68 @@
     clearArrows();
     renderBall();
     renderPlayers();
+    setBaseline();
+  }
+
+  // ---------- Mode (Formations vs Manual) + Reset baseline tracking ----------
+  var mode = 'formations';
+  var baselineState = null; // null = no defined baseline to revert to (e.g. blank Manual slate)
+
+  function serializeFieldState() {
+    return JSON.stringify({
+      players: players.map(function (p) { return {role: p.role, team: p.team, x: p.x, y: p.y}; }),
+      ball: {x: ball.x, y: ball.y},
+      arrows: arrows.map(function (a) {
+        return {
+          x1: parseFloat(a.getAttribute('x1')), y1: parseFloat(a.getAttribute('y1')),
+          x2: parseFloat(a.getAttribute('x2')), y2: parseFloat(a.getAttribute('y2'))
+        };
+      })
+    });
+  }
+
+  function setBaseline() {
+    baselineState = serializeFieldState();
+    updateResetState();
+  }
+
+  function updateResetState() {
+    var unchanged = baselineState !== null && serializeFieldState() === baselineState;
+    document.getElementById('deleteArrowsBtn').disabled = !(baselineState !== null && !unchanged);
+    // Save is disabled only when there's a baseline and nothing has changed since it —
+    // a blank Manual slate (no baseline yet) still allows saving a brand-new position.
+    document.getElementById('saveNameInput').disabled = unchanged;
+    document.getElementById('saveBtn').disabled = unchanged;
+  }
+
+  function setMode(newMode) {
+    mode = newMode;
+    document.getElementById('formationsRow').style.display = mode === 'formations' ? '' : 'none';
+    document.getElementById('manualRow').style.display = mode === 'manual' ? '' : 'none';
+    document.getElementById('modeFormationsRadio').checked = (mode === 'formations');
+    document.getElementById('modeManualRadio').checked = (mode === 'manual');
+
+    if (mode === 'formations') {
+      initPlayers(); // reapply the selected formations
+    } else {
+      var savedSel = document.getElementById('savedSelect');
+      var id = savedSel.value;
+      if (!id) {
+        // Nothing chosen yet this session — default to the first saved position, if any exist.
+        var list = loadSnapshots();
+        if (list.length > 0) {
+          id = list[0].id;
+          savedSel.value = id;
+        }
+      }
+      var snap = id ? loadSnapshots().filter(function (s) { return s.id === id; })[0] : null;
+      if (snap) {
+        applySnapshot(snap);
+      } else {
+        baselineState = null; // blank slate — nothing saved yet to reset back to
+        updateResetState();
+      }
+    }
   }
 
   var roleImageNames = {GK: 'goalie', DF: 'defender', MF: 'midfielder', FW: 'striker'};
@@ -389,6 +465,7 @@
       g.classList.remove('dragging');
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      updateResetState();
     }
 
     g.addEventListener('pointerdown', onDown);
@@ -429,7 +506,7 @@
     sel.innerHTML = '';
     var pickOpt = document.createElement('option');
     pickOpt.value = '';
-    pickOpt.textContent = 'Pick position';
+    pickOpt.textContent = 'No saved positions';
     sel.appendChild(pickOpt);
     list.forEach(function (snap) {
       var opt = document.createElement('option');
@@ -438,6 +515,8 @@
       sel.appendChild(opt);
     });
     sel.value = selectId || '';
+    var clearAllBtn = document.getElementById('clearPositionsBtn');
+    if (clearAllBtn) clearAllBtn.disabled = (list.length === 0);
   }
 
   function captureSnapshot(name) {
@@ -477,14 +556,18 @@
       arrowLayer.appendChild(line);
       arrows.push(line);
     });
+    // Prefill the name field with this position's name, so Save overwrites it by default.
+    var nameInput = document.getElementById('saveNameInput');
+    if (nameInput) nameInput.value = snap.name;
+    setBaseline();
   }
 
   // ---------- Initial render ----------
   drawField();
   svg.appendChild(arrowLayer);
   populateSelects();
-  initPlayers();
   refreshSavedSelect();
+  setMode('formations');
 
   // ---------- Event listeners ----------
 
@@ -520,6 +603,7 @@
       draftArrow.remove(); // treat as an accidental tap, not a real arrow
     } else {
       arrows.push(draftArrow);
+      updateResetState();
     }
     draftArrow = null;
   });
@@ -528,14 +612,25 @@
     var onPlayer = evt.target.closest ? evt.target.closest('.player-group') : null;
     if (onPlayer) return; // double-clicking a player is not a clear-arrows gesture
     clearArrows();
+    updateResetState();
   });
 
   // Formation controls
   document.getElementById('homeFormation').addEventListener('change', initPlayers);
   document.getElementById('awayFormation').addEventListener('change', initPlayers);
-  document.getElementById('homeLabel').addEventListener('click', initPlayers);
-  document.getElementById('awayLabel').addEventListener('click', initPlayers);
-  document.getElementById('deleteArrowsBtn').addEventListener('click', clearArrows);
+  document.getElementById('modeFormationsRadio').addEventListener('change', function () { if (this.checked) setMode('formations'); });
+  document.getElementById('modeManualRadio').addEventListener('change', function () { if (this.checked) setMode('manual'); });
+  document.getElementById('deleteArrowsBtn').addEventListener('click', function () {
+    // Reset means "back to the current baseline" — the loaded saved
+    // position in Manual mode, or the selected formations in Formations mode.
+    if (mode === 'manual') {
+      var id = document.getElementById('savedSelect').value;
+      var snap = id ? loadSnapshots().filter(function (s) { return s.id === id; })[0] : null;
+      if (snap) applySnapshot(snap);
+    } else {
+      initPlayers();
+    }
+  });
 
   // Saved positions
   document.getElementById('saveBtn').addEventListener('click', function () {
@@ -544,10 +639,20 @@
     if (!name) { input.focus(); return; }
     var list = loadSnapshots();
     var snap = captureSnapshot(name);
-    list.push(snap);
+    var existingIndex = -1;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].name.trim().toLowerCase() === name.toLowerCase()) { existingIndex = i; break; }
+    }
+    if (existingIndex !== -1) {
+      snap.id = list[existingIndex].id; // keep the same id so the dropdown selection stays put
+      list[existingIndex] = snap;
+    } else {
+      list.push(snap);
+    }
     persistSnapshots(list);
     input.value = '';
     refreshSavedSelect(snap.id);
+    setBaseline(); // this save is now the baseline Reset will revert to
   });
 
   document.getElementById('saveNameInput').addEventListener('keydown', function (evt) {
@@ -556,7 +661,12 @@
 
   document.getElementById('savedSelect').addEventListener('change', function () {
     var id = this.value;
-    if (!id) { initPlayers(); return; }
+    if (!id) {
+      // back to a blank Manual slate — leave the field as-is, nothing to reset back to
+      baselineState = null;
+      updateResetState();
+      return;
+    }
     var snap = loadSnapshots().filter(function (s) { return s.id === id; })[0];
     if (snap) applySnapshot(snap);
   });
@@ -566,6 +676,8 @@
     if (!id) return;
     persistSnapshots(loadSnapshots().filter(function (s) { return s.id !== id; }));
     refreshSavedSelect();
+    baselineState = null; // the snapshot that was our baseline no longer exists
+    updateResetState();
   });
 
   document.getElementById('clearPositionsBtn').addEventListener('click', function () {
@@ -573,6 +685,7 @@
     if (window.confirm('Delete all saved positions? This cannot be undone.')) {
       persistSnapshots([]);
       refreshSavedSelect();
+      if (mode === 'manual') { baselineState = null; updateResetState(); }
     }
   });
 })();
