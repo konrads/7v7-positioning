@@ -215,7 +215,7 @@
   var TEAM_FILL = {home: '#e63946', away: '#1d6fd8'};
   var teamOutlineColor = {home: '#7a1420', away: '#0d3f78'};
   var roleLetters = {GK: 'G', DF: 'D', MF: 'M', FW: 'S'};
-  var PLAYER_RX = 17.5, PLAYER_RY = 20; // shared radius for the fallback ellipse, photo, and ring
+  var PLAYER_RX = 15.75, PLAYER_RY = 18; // shared radius for the fallback ellipse, photo, and ring
   var OUTLINE_WIDTH = 2.5; // team-outline stroke width, shared by the fallback ellipse and the photo ring
 
   function buildTeamPositions(formationKey, isHome) {
@@ -271,7 +271,7 @@
   }
 
   function renderBall() {
-    var BALL_R = 14, BALL_PENTAGON_R = 8.5;
+    var BALL_R = 12.6, BALL_PENTAGON_R = 7.65;
     var old = svg.querySelector('.ball-group');
     if (old) old.remove();
     var g = el('g', {class: 'ball-group player-group', 'data-id': ball.id, transform: 'translate(' + ball.x + ',' + ball.y + ')'});
