@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>7 v 7 Positioning</title>
+<style>
+  :root {
+    --panel-bg: #1e2530;
+    --panel-text: #e8ecf1;
+  }
+  html, body {
+    height: 100%;
+    background: #12161c;
+    overscroll-behavior: none;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #12161c;
+    color: var(--panel-text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 8px 6px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 21px; font-weight: 600; margin: 0 0 16px; }
+  .panel {
+    display: inline-grid;
+    grid-template-columns: auto auto;
+    gap: 6px 28px;
+    margin: 0 auto 8px;
+    max-width: 100%;
+  }
+  .panel-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .panel-cell.row1 { justify-content: space-between; }
+  .team-group { display: flex; align-items: center; gap: 6px; }
+  .team-group + .team-group { margin-left: 10px; }
+  select, button {
+    background: var(--panel-bg);
+    color: var(--panel-text);
+    border: 1px solid #364152;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  input[type=text] {
+    background: var(--panel-bg);
+    color: var(--panel-text);
+    border: 1px solid #364152;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    width: 160px;
+  }
+  select#savedSelect { max-width: 180px; }
+  button:hover, select:hover { border-color: #5a6b82; }
+  .label { font-size: 15px; color: #9aa5b1; }
+  .label.clickable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+  .label.clickable:hover { color: var(--panel-text); }
+  .fill-btn { align-self: stretch; white-space: nowrap; }
+  .field-wrap {
+    position: relative;
+    width: 100%;
+    max-width: min(94vw, 900px);
+    flex: 1 1 auto;
+    display: flex;
+    justify-content: center;
+    min-height: 0;
+    touch-action: none;
+  }
+  svg {
+    height: 100%;
+    width: auto;
+    max-width: 100%;
+    display: block;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    user-select: none;
+    cursor: crosshair;
+  }
+  .player-group { cursor: grab; }
+  .player-group.dragging { cursor: grabbing; }
+  .player-group:hover .player-circle { filter: brightness(1.15); }
+  .ball-group { cursor: grab; }
+  .ball-group.dragging { cursor: grabbing; }
+  .ball-group:hover .ball-shell { filter: brightness(1.1); }
+  .player-label {
+    font-size: 13px;
+    font-weight: 700;
+    fill: white;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>7 v 7 positioning</h1>
+
+<div class="panel">
+  <div class="panel-cell row1">
+    <span class="team-group">
+      <span class="label clickable" id="homeLabel" title="Click to reset Home's formation">Home</span>
+      <select id="homeFormation"></select>
+    </span>
+    <span class="team-group">
+      <span class="label clickable" id="awayLabel" title="Click to reset Away's formation">Away</span>
+      <select id="awayFormation"></select>
+    </span>
+  </div>
+  <button id="deleteArrowsBtn" class="fill-btn">Delete →</button>
+
+  <div class="panel-cell row2">
+    <select id="savedSelect"><option value="">Pick position</option></select>
+    <input type="text" id="saveNameInput" placeholder="Position name">
+    <button id="saveBtn">Save</button>
+    <button id="deleteBtn">Delete</button>
+  </div>
+  <button id="clearPositionsBtn" class="fill-btn">Delete All</button>
+</div>
+
+<div class="field-wrap">
+  <svg id="pitch" viewBox="0 -16 460 632" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="7 v 7 soccer field with movable players"></svg>
+</div>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var W = 460, H = 600;
+  var svg = document.getElementById('pitch');
+  var margin = 12;
+  var fieldTop = margin, fieldBottom = H - margin;
+  var fieldLeft = margin, fieldRight = W - margin;
+  var fieldW = fieldRight - fieldLeft;
+  var fieldH = fieldBottom - fieldTop;
+
+  function el(tag, attrs) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  function drawField() {
+    svg.appendChild(el('rect', {x: 0, y: 0, width: W, height: H, fill: '#3a8f3a'}));
+    var stripes = 10;
+    for (var i = 0; i < stripes; i++) {
+      if (i % 2 === 0) {
+        svg.appendChild(el('rect', {
+          x: 0, y: i * (H / stripes), width: W, height: H / stripes, fill: '#368836'
+        }));
+      }
+    }
+    var lineColor = '#f2f2f2';
+    svg.appendChild(el('rect', {x: margin, y: margin, width: W - 2 * margin, height: H - 2 * margin, stroke: lineColor, 'stroke-width': 2, fill: 'none'}));
+    svg.appendChild(el('line', {x1: margin, y1: H / 2, x2: W - margin, y2: H / 2, stroke: lineColor, 'stroke-width': 2}));
+
+    function endMarkings(dir) {
+      var boxW = 220, boxD = 90;
+      var boxY = dir === 'top' ? margin : H - margin - boxD;
+      svg.appendChild(el('rect', {x: (W - boxW) / 2, y: boxY, width: boxW, height: boxD, stroke: lineColor, 'stroke-width': 2, fill: 'none'}));
+
+      var spotY = dir === 'top' ? margin + 55 : H - margin - 55;
+      svg.appendChild(el('circle', {cx: W / 2, cy: spotY, r: 2, fill: lineColor}));
+
+      var goalW = 103, goalD = 16, goalShift = 3;
+      var goalY = dir === 'top' ? margin - goalD - goalShift : H - margin + goalShift;
+      var gx1 = (W - goalW) / 2, gx2 = gx1 + goalW;
+      var goalPath = dir === 'top'
+        ? 'M ' + gx1 + ' ' + (goalY + goalD) + ' L ' + gx1 + ' ' + goalY + ' L ' + gx2 + ' ' + goalY + ' L ' + gx2 + ' ' + (goalY + goalD)
+        : 'M ' + gx1 + ' ' + goalY + ' L ' + gx1 + ' ' + (goalY + goalD) + ' L ' + gx2 + ' ' + (goalY + goalD) + ' L ' + gx2 + ' ' + goalY;
+      svg.appendChild(el('path', {d: goalPath, fill: 'none', stroke: '#ffffff', 'stroke-width': 4, 'stroke-linecap': 'square'}));
+    }
+    endMarkings('top');
+    endMarkings('bottom');
+  }
+
+  var formations = {
+    "2-3-1 (attacking)": [
+      {role: 'GK', x: 0.5, y: 0.06},
+      {role: 'DF', x: 0.25, y: 0.24}, {role: 'DF', x: 0.75, y: 0.24},
+      {role: 'MF', x: 0.16, y: 0.5}, {role: 'MF', x: 0.5, y: 0.44}, {role: 'MF', x: 0.84, y: 0.5},
+      {role: 'FW', x: 0.5, y: 0.78}
+    ],
+    "3-2-1 (control)": [
+      {role: 'GK', x: 0.5, y: 0.06},
+      {role: 'DF', x: 0.2, y: 0.24}, {role: 'DF', x: 0.5, y: 0.2}, {role: 'DF', x: 0.8, y: 0.24},
+      {role: 'MF', x: 0.3, y: 0.52}, {role: 'MF', x: 0.7, y: 0.52},
+      {role: 'FW', x: 0.5, y: 0.8}
+    ],
+    "2-2-2 (balanced)": [
+      {role: 'GK', x: 0.5, y: 0.06},
+      {role: 'DF', x: 0.25, y: 0.22}, {role: 'DF', x: 0.75, y: 0.22},
+      {role: 'MF', x: 0.25, y: 0.5}, {role: 'MF', x: 0.75, y: 0.5},
+      {role: 'FW', x: 0.3, y: 0.78}, {role: 'FW', x: 0.7, y: 0.78}
+    ],
+    "4-1-1 (defensive)": [
+      {role: 'GK', x: 0.5, y: 0.06},
+      {role: 'DF', x: 0.12, y: 0.26}, {role: 'DF', x: 0.38, y: 0.22}, {role: 'DF', x: 0.62, y: 0.22}, {role: 'DF', x: 0.88, y: 0.26},
+      {role: 'MF', x: 0.5, y: 0.5},
+      {role: 'FW', x: 0.5, y: 0.8}
+    ]
+  };
+  var formationNames = Object.keys(formations);
+  var TEAM_FILL = {home: '#e63946', away: '#1d6fd8'};
+  var teamOutlineColor = {home: '#7a1420', away: '#0d3f78'};
+  var roleLetters = {GK: 'G', DF: 'D', MF: 'M', FW: 'S'};
+  var PLAYER_RX = 17.5, PLAYER_RY = 20; // shared radius for the fallback ellipse, photo, and ring
+  var OUTLINE_WIDTH = 2.5; // team-outline stroke width, shared by the fallback ellipse and the photo ring
+
+  function buildTeamPositions(formationKey, isHome) {
+    var shape = formations[formationKey];
+    return shape.map(function (p, i) {
+      var px = p.x;
+      if (!isHome && p.role === 'FW') {
+        px = 0.5 + (p.x - 0.5) * 0.8167; // nudge away-team forwards toward center (one-third strength)
+      }
+      var x = fieldLeft + px * fieldW;
+      var y;
+      if (isHome) {
+        y = fieldBottom - p.y * fieldH * 0.9 - fieldH * 0.02;
+      } else {
+        y = fieldTop + p.y * fieldH * 0.9 + fieldH * 0.02;
+      }
+      return {role: p.role, x: x, y: y, id: (isHome ? 'home' : 'away') + '-' + i, team: isHome ? 'home' : 'away'};
+    });
+  }
+
+  var players = [];
+  var ball = {id: 'ball', x: W / 2, y: H / 2};
+  var arrowLayer = el('g', {id: 'arrowLayer'});
+  var arrows = [];        // finalized <line> elements
+  var draftArrow = null;
+  var drawingArrow = false;
+  var draftStart = {x: 0, y: 0};
+
+  var defsEl = svg.appendChild(el('defs', {}));
+  defsEl.appendChild((function () {
+    var marker = el('marker', {
+      id: 'arrowhead', viewBox: '0 0 10 10', refX: '8', refY: '5',
+      markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse'
+    });
+    marker.appendChild(el('path', {d: 'M 0 0 L 10 5 L 0 10 z', fill: '#ffe066'}));
+    return marker;
+  })());
+
+  function clearArrows() {
+    arrows.forEach(function (a) { a.remove(); });
+    arrows = [];
+    if (draftArrow) { draftArrow.remove(); draftArrow = null; }
+    drawingArrow = false;
+  }
+
+  function pentagonPoints(r, rotationDeg) {
+    var pts = [];
+    for (var i = 0; i < 5; i++) {
+      var angle = (rotationDeg + i * 72) * Math.PI / 180;
+      pts.push((r * Math.cos(angle)).toFixed(2) + ',' + (r * Math.sin(angle)).toFixed(2));
+    }
+    return pts.join(' ');
+  }
+
+  function renderBall() {
+    var BALL_R = 14, BALL_PENTAGON_R = 8.5;
+    var old = svg.querySelector('.ball-group');
+    if (old) old.remove();
+    var g = el('g', {class: 'ball-group player-group', 'data-id': ball.id, transform: 'translate(' + ball.x + ',' + ball.y + ')'});
+    g.appendChild(el('circle', {class: 'ball-shell', r: BALL_R, fill: '#ffffff', stroke: '#1a1a1a', 'stroke-width': 1.6}));
+    g.appendChild(el('polygon', {points: pentagonPoints(BALL_PENTAGON_R, -90), fill: '#1a1a1a'}));
+    for (var i = 0; i < 5; i++) {
+      var a1 = (-90 + i * 72) * Math.PI / 180;
+      var x1 = BALL_PENTAGON_R * Math.cos(a1), y1 = BALL_PENTAGON_R * Math.sin(a1);
+      var x2 = BALL_R * Math.cos(a1), y2 = BALL_R * Math.sin(a1);
+      g.appendChild(el('line', {x1: x1, y1: y1, x2: x2, y2: y2, stroke: '#1a1a1a', 'stroke-width': 1}));
+    }
+    svg.appendChild(g);
+    attachDrag(g, ball);
+  }
+
+  function initPlayers() {
+    var homeKey = document.getElementById('homeFormation').value;
+    var awayKey = document.getElementById('awayFormation').value;
+    players = buildTeamPositions(homeKey, true).concat(buildTeamPositions(awayKey, false));
+    ball.x = W / 2;
+    ball.y = H / 2;
+    clearArrows();
+    renderBall();
+    renderPlayers();
+  }
+
+  var roleImageNames = {GK: 'goalie', DF: 'defender', MF: 'midfielder', FW: 'striker'};
+  // Expected filenames: home-striker1.png, away-defender1.png, etc.
+  var photoFilenameCounters = {}; // per-role-per-team counter, reset each render so numbering restarts cleanly
+
+  function tryLoadPlayerPhoto(g, p, teamColor, circle, label) {
+    var base = roleImageNames[p.role];
+    if (!base) return;
+    var key = p.team + '-' + base;
+    photoFilenameCounters[key] = (photoFilenameCounters[key] || 0) + 1;
+    var filename = key + photoFilenameCounters[key] + '.png';
+
+    var probe = new Image();
+    probe.onload = function () {
+      if (!g.parentNode) return;
+      var backdrop = el('ellipse', {rx: PLAYER_RX, ry: PLAYER_RY, fill: teamColor});
+      var img = el('image', {
+        x: -PLAYER_RX, y: -PLAYER_RY, width: PLAYER_RX * 2, height: PLAYER_RY * 2,
+        preserveAspectRatio: 'xMidYMid meet'
+      });
+      img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', filename);
+      img.setAttribute('href', filename);
+      var ring = el('ellipse', {rx: PLAYER_RX, ry: PLAYER_RY, fill: 'none', stroke: teamOutlineColor[p.team], 'stroke-width': OUTLINE_WIDTH});
+
+      circle.remove();
+      label.remove();
+      g.appendChild(backdrop);
+      g.appendChild(img);
+      g.appendChild(ring);
+    };
+    probe.onerror = function () { /* keep the circle + letter fallback */ };
+    probe.src = filename;
+  }
+
+  function renderPlayers() {
+    var old = svg.querySelectorAll('.player-group:not(.ball-group)');
+    old.forEach(function (n) { n.remove(); });
+    photoFilenameCounters = {};
+    players.forEach(function (p) {
+      var g = el('g', {class: 'player-group', 'data-id': p.id, transform: 'translate(' + p.x + ',' + p.y + ')'});
+      var teamColor = TEAM_FILL[p.team];
+      var circle = el('ellipse', {class: 'player-circle', rx: PLAYER_RX, ry: PLAYER_RY, fill: teamColor, stroke: teamOutlineColor[p.team], 'stroke-width': OUTLINE_WIDTH});
+      var label = el('text', {class: 'player-label', x: 0, y: 0.5});
+      label.textContent = roleLetters[p.role];
+      g.appendChild(circle);
+      g.appendChild(label);
+      svg.appendChild(g);
+      attachDrag(g, p);
+      tryLoadPlayerPhoto(g, p, teamColor, circle, label);
+    });
+  }
+
+  function svgPoint(evt) {
+    var pt = svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    var ctm = svg.getScreenCTM();
+    if (!ctm) return {x: 0, y: 0};
+    return pt.matrixTransform(ctm.inverse());
+  }
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function attachDrag(g, p) {
+    var dragging = false;
+    var offset = {x: 0, y: 0};
+
+    function onDown(evt) {
+      dragging = true;
+      g.classList.add('dragging');
+      svg.appendChild(g);
+      var pt = svgPoint(evt);
+      offset.x = pt.x - p.x;
+      offset.y = pt.y - p.y;
+      try { g.setPointerCapture(evt.pointerId); } catch (e) {}
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    }
+
+    function onMove(evt) {
+      if (!dragging) return;
+      var pt = svgPoint(evt);
+      p.x = clamp(pt.x - offset.x, fieldLeft + 8, fieldRight - 8);
+      p.y = clamp(pt.y - offset.y, fieldTop + 8, fieldBottom - 8);
+      g.setAttribute('transform', 'translate(' + p.x + ',' + p.y + ')');
+    }
+
+    function onUp() {
+      dragging = false;
+      g.classList.remove('dragging');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    }
+
+    g.addEventListener('pointerdown', onDown);
+  }
+
+  function populateSelects() {
+    var homeSel = document.getElementById('homeFormation');
+    var awaySel = document.getElementById('awayFormation');
+    formationNames.forEach(function (name) {
+      var o1 = document.createElement('option'); o1.value = name; o1.textContent = name;
+      var o2 = document.createElement('option'); o2.value = name; o2.textContent = name;
+      homeSel.appendChild(o1);
+      awaySel.appendChild(o2);
+    });
+    homeSel.value = formationNames[0];
+    awaySel.value = formationNames[2 % formationNames.length];
+  }
+
+  // ---------- Saved positions (localStorage) ----------
+  var STORAGE_KEY = 'soccerPositioningSnapshots';
+
+  function loadSnapshots() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function persistSnapshots(list) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+
+  function refreshSavedSelect(selectId) {
+    var list = loadSnapshots();
+    var sel = document.getElementById('savedSelect');
+    sel.innerHTML = '';
+    var pickOpt = document.createElement('option');
+    pickOpt.value = '';
+    pickOpt.textContent = 'Pick position';
+    sel.appendChild(pickOpt);
+    list.forEach(function (snap) {
+      var opt = document.createElement('option');
+      opt.value = snap.id;
+      opt.textContent = snap.name;
+      sel.appendChild(opt);
+    });
+    sel.value = selectId || '';
+  }
+
+  function captureSnapshot(name) {
+    return {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: name,
+      players: players.map(function (p) {
+        return {id: p.id, role: p.role, team: p.team, x: p.x, y: p.y};
+      }),
+      ball: {x: ball.x, y: ball.y},
+      arrows: arrows.map(function (a) {
+        return {
+          x1: parseFloat(a.getAttribute('x1')), y1: parseFloat(a.getAttribute('y1')),
+          x2: parseFloat(a.getAttribute('x2')), y2: parseFloat(a.getAttribute('y2'))
+        };
+      })
+    };
+  }
+
+  function applySnapshot(snap) {
+    players = snap.players.map(function (p) { return {id: p.id, role: p.role, team: p.team, x: p.x, y: p.y}; });
+    if (snap.ball) {
+      ball.x = snap.ball.x;
+      ball.y = snap.ball.y;
+    } else {
+      ball.x = W / 2;
+      ball.y = H / 2;
+    }
+    renderBall();
+    renderPlayers();
+    clearArrows();
+    snap.arrows.forEach(function (a) {
+      var line = el('line', {
+        x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2,
+        stroke: '#ffe066', 'stroke-width': 3, 'marker-end': 'url(#arrowhead)'
+      });
+      arrowLayer.appendChild(line);
+      arrows.push(line);
+    });
+  }
+
+  // ---------- Initial render ----------
+  drawField();
+  svg.appendChild(arrowLayer);
+  populateSelects();
+  initPlayers();
+  refreshSavedSelect();
+
+  // ---------- Event listeners ----------
+
+  // Arrow drawing: drag on empty pitch space; double-click clears all arrows
+  svg.addEventListener('pointerdown', function (evt) {
+    var onPlayer = evt.target.closest ? evt.target.closest('.player-group') : null;
+    if (onPlayer) return; // clicking a player still moves it, not an arrow
+    drawingArrow = true;
+    var pt = svgPoint(evt);
+    draftStart.x = pt.x;
+    draftStart.y = pt.y;
+    draftArrow = el('line', {
+      x1: pt.x, y1: pt.y, x2: pt.x, y2: pt.y,
+      stroke: '#ffe066', 'stroke-width': 3, 'marker-end': 'url(#arrowhead)'
+    });
+    arrowLayer.appendChild(draftArrow);
+    try { svg.setPointerCapture(evt.pointerId); } catch (e) {}
+  });
+
+  svg.addEventListener('pointermove', function (evt) {
+    if (!drawingArrow || !draftArrow) return;
+    var pt = svgPoint(evt);
+    draftArrow.setAttribute('x2', pt.x);
+    draftArrow.setAttribute('y2', pt.y);
+  });
+
+  svg.addEventListener('pointerup', function (evt) {
+    if (!drawingArrow || !draftArrow) return;
+    drawingArrow = false;
+    var pt = svgPoint(evt);
+    var dx = pt.x - draftStart.x, dy = pt.y - draftStart.y;
+    if (Math.sqrt(dx * dx + dy * dy) < 8) {
+      draftArrow.remove(); // treat as an accidental tap, not a real arrow
+    } else {
+      arrows.push(draftArrow);
+    }
+    draftArrow = null;
+  });
+
+  svg.addEventListener('dblclick', function (evt) {
+    var onPlayer = evt.target.closest ? evt.target.closest('.player-group') : null;
+    if (onPlayer) return; // double-clicking a player is not a clear-arrows gesture
+    clearArrows();
+  });
+
+  // Formation controls
+  document.getElementById('homeFormation').addEventListener('change', initPlayers);
+  document.getElementById('awayFormation').addEventListener('change', initPlayers);
+  document.getElementById('homeLabel').addEventListener('click', initPlayers);
+  document.getElementById('awayLabel').addEventListener('click', initPlayers);
+  document.getElementById('deleteArrowsBtn').addEventListener('click', clearArrows);
+
+  // Saved positions
+  document.getElementById('saveBtn').addEventListener('click', function () {
+    var input = document.getElementById('saveNameInput');
+    var name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    var list = loadSnapshots();
+    var snap = captureSnapshot(name);
+    list.push(snap);
+    persistSnapshots(list);
+    input.value = '';
+    refreshSavedSelect(snap.id);
+  });
+
+  document.getElementById('saveNameInput').addEventListener('keydown', function (evt) {
+    if (evt.key === 'Enter') document.getElementById('saveBtn').click();
+  });
+
+  document.getElementById('savedSelect').addEventListener('change', function () {
+    var id = this.value;
+    if (!id) { initPlayers(); return; }
+    var snap = loadSnapshots().filter(function (s) { return s.id === id; })[0];
+    if (snap) applySnapshot(snap);
+  });
+
+  document.getElementById('deleteBtn').addEventListener('click', function () {
+    var id = document.getElementById('savedSelect').value;
+    if (!id) return;
+    persistSnapshots(loadSnapshots().filter(function (s) { return s.id !== id; }));
+    refreshSavedSelect();
+  });
+
+  document.getElementById('clearPositionsBtn').addEventListener('click', function () {
+    if (loadSnapshots().length === 0) return;
+    if (window.confirm('Delete all saved positions? This cannot be undone.')) {
+      persistSnapshots([]);
+      refreshSavedSelect();
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
